@@ -1,0 +1,95 @@
+name: Hourly Competitor Intelligence
+
+on:
+  schedule:
+    # Run every hour to track competitor metrics
+    - cron: '0 * * * *'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      competitors:
+        description: 'Comma-separated list of usernames to track'
+        required: false
+        default: 'elonmusk,sundarpichai,sama,satyanadella'
+
+jobs:
+  competitor-tracking:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python with uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Run competitor intelligence
+      env:
+        BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        API_KEY: ${{ secrets.API_KEY }}
+        API_KEY_SECRET: ${{ secrets.API_KEY_SECRET }}
+        COMPETITORS: ${{ github.event.inputs.competitors || 'elonmusk,sundarpichai,sama,satyanadella' }}
+      run: |
+        echo "🕵️ Starting competitor intelligence gathering..."
+        echo "Competitors: $COMPETITORS"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        # Run competitor tracking (using archived script for now)
+        uv run python scripts/archive/competitor_tracker.py
+        
+        echo "✅ Competitor intelligence completed"
+    
+    - name: Generate intelligence report
+      run: |
+        echo "# Competitor Intelligence Report - $(date -u +%Y-%m-%d_%H:%M)" > reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        echo "" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        echo "## Summary" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        echo "Generated at: $(date -u)" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        echo "" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        
+        # Add database stats if available
+        if [ -f "data/competitor_intelligence.db" ]; then
+          echo "Database updated: ✅" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        else
+          echo "Database status: ❌ Not found" >> reports/competitor_intel_$(date -u +%Y%m%d_%H%M).md
+        fi
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Competitor Intel Bot"
+        
+        # Add generated files
+        git add data/ reports/
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Hourly competitor intelligence update - $(date -u +%Y-%m-%d_%H:%M)
+
+🕵️ Automated competitor tracking data
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+          
+          git push
+          echo "✅ Competitor intelligence data committed and pushed"
+        fi
+    
+    - name: Handle rate limit errors
+      if: failure()
+      run: |
+        echo "⚠️  Competitor intelligence failed - likely due to API rate limits"
+        echo "Will retry in the next scheduled run"
+        echo "Consider adjusting the schedule if rate limits are consistently hit"

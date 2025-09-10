@@ -1,0 +1,186 @@
+name: Weekly Intelligence Reports
+
+on:
+  schedule:
+    # Run every Monday at 09:00 UTC for weekly reports
+    - cron: '0 9 * * 1'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  generate-reports:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python with uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Generate comprehensive weekly report
+      env:
+        BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        API_KEY: ${{ secrets.API_KEY }}
+        API_KEY_SECRET: ${{ secrets.API_KEY_SECRET }}
+        TARGET_USER_ID: ${{ secrets.TARGET_USER_ID }}
+        TARGET_USERNAME: ${{ secrets.TARGET_USERNAME }}
+      run: |
+        echo "📊 Generating weekly intelligence report..."
+        echo "Week ending: $(date -u +%Y-%m-%d)"
+        
+        REPORT_DATE=$(date -u +%Y%m%d)
+        REPORT_FILE="reports/weekly/intelligence_report_$REPORT_DATE.md"
+        
+        mkdir -p reports/weekly
+        
+        echo "# 📊 X-Tracker Weekly Intelligence Report" > $REPORT_FILE
+        echo "**Week ending:** $(date -u +%B\ %d,\ %Y)" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Executive Summary
+        echo "## 📈 Executive Summary" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Growth Metrics (if available)
+        if [ -f "data/x_growth_data.db" ] || [ -f "data/x_tracker.db" ]; then
+          echo "### Growth Performance" >> $REPORT_FILE
+          echo "- Growth data tracked ✅" >> $REPORT_FILE
+          echo "- Database records: $(find data/ -name '*.db' -exec wc -c {} + 2>/dev/null | tail -1 | awk '{print $1}' | numfmt --to=iec 2>/dev/null || echo 'N/A')" >> $REPORT_FILE
+        fi
+        
+        # Competitor Intelligence (if available) 
+        if [ -f "data/competitor_intelligence.db" ]; then
+          echo "### Competitive Landscape" >> $REPORT_FILE
+          echo "- Competitor tracking active ✅" >> $REPORT_FILE
+        fi
+        
+        # Account Cleaning (if available)
+        if [ -f "data/inactive_cleaner.db" ]; then
+          echo "### Account Management" >> $REPORT_FILE
+          echo "- Following list optimization tracked ✅" >> $REPORT_FILE
+        fi
+        
+        echo "" >> $REPORT_FILE
+        
+        # System Health
+        echo "## 🛠️ System Health" >> $REPORT_FILE
+        echo "- **Database Status**: $([ -f "data/x_tracker.db" ] && echo '✅ Operational' || echo '⚠️ Not Found')" >> $REPORT_FILE
+        echo "- **Data Directory**: $(du -sh data 2>/dev/null | cut -f1 || echo 'N/A')" >> $REPORT_FILE
+        echo "- **Reports Generated**: $(find reports/ -name '*.md' -mtime -7 2>/dev/null | wc -l || echo '0') this week" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Activity Summary
+        echo "## 📋 Activity Summary" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Recent commits (GitHub activity)
+        echo "### Development Activity" >> $REPORT_FILE
+        git log --oneline --since="7 days ago" --pretty=format:"- %s (%cr)" | head -10 >> $REPORT_FILE || echo "- No recent commits" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Recommendations
+        echo "## 💡 Recommendations" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Check OAuth status
+        if [ -z "${{ secrets.ACCESS_TOKEN }}" ]; then
+          echo "- 🔐 **Configure OAuth tokens** for 25x enhanced monitoring capabilities" >> $REPORT_FILE
+        fi
+        
+        # Check database status
+        if [ ! -f "data/x_tracker.db" ]; then
+          echo "- 🗄️ **Initialize database** using \`make init\` command" >> $REPORT_FILE
+        fi
+        
+        # Generic recommendations
+        echo "- 📊 Review growth velocity trends for optimization opportunities" >> $REPORT_FILE
+        echo "- 🧹 Consider running inactive account cleaner if following list is large" >> $REPORT_FILE
+        echo "- 🕵️ Expand competitor tracking list for better market intelligence" >> $REPORT_FILE
+        
+        echo "" >> $REPORT_FILE
+        echo "---" >> $REPORT_FILE
+        echo "*Generated automatically by X-Tracker on $(date -u)*" >> $REPORT_FILE
+        
+        echo "✅ Weekly report generated: $REPORT_FILE"
+    
+    - name: Create charts and visualizations
+      run: |
+        echo "📊 Generating charts and visualizations..."
+        
+        # Run chart generation if data is available
+        if [ -f "scripts/archive/generate_charts.py" ]; then
+          uv run python scripts/archive/generate_charts.py || echo "⚠️ Chart generation failed, continuing..."
+        fi
+        
+        echo "✅ Visualizations completed"
+    
+    - name: Archive old reports
+      run: |
+        echo "🗂️ Archiving old reports..."
+        
+        # Move reports older than 30 days to archive
+        find reports/ -name '*.md' -mtime +30 -not -path '*/archive/*' -exec mkdir -p reports/archive \; -exec mv {} reports/archive/ \; 2>/dev/null || true
+        
+        # Keep only last 10 weekly reports
+        cd reports/weekly 2>/dev/null && ls -t intelligence_report_*.md 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        
+        echo "✅ Report archiving completed"
+    
+    - name: Commit and push reports
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Intelligence Report Bot"
+        
+        # Add all report files
+        git add reports/ charts/ *.png *.jpg *.svg 2>/dev/null || true
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Weekly intelligence report - $(date -u +%Y-%m-%d)
+
+📊 Comprehensive X-Tracker analysis and insights
+📈 Growth metrics, competitive intelligence, and system health
+🎯 Strategic recommendations for account optimization
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+          
+          git push
+          echo "✅ Weekly report committed and pushed"
+        fi
+    
+    - name: Create release with report
+      run: |
+        REPORT_DATE=$(date -u +%Y%m%d)
+        TAG_NAME="weekly-report-$REPORT_DATE"
+        
+        # Create a release with the weekly report
+        if [ -f "reports/weekly/intelligence_report_$REPORT_DATE.md" ]; then
+          echo "📦 Creating release with weekly report..."
+          
+          # Note: This would require GitHub CLI or API token for actual release creation
+          # For now, just log the action
+          echo "Would create release: $TAG_NAME"
+          echo "Report: reports/weekly/intelligence_report_$REPORT_DATE.md"
+        fi
+    
+    - name: Handle errors
+      if: failure()
+      run: |
+        echo "❌ Weekly report generation failed"
+        echo "Check logs for specific errors"
+        echo "Report generation will be retried in the next scheduled run"

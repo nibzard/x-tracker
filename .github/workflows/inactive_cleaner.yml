@@ -1,0 +1,173 @@
+name: Weekly Inactive Account Cleaning
+
+on:
+  schedule:
+    # Run every Sunday at 12:00 UTC for weekly cleaning
+    - cron: '0 12 * * 0'
+  
+  # Allow manual triggering with custom parameters
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (true/false)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+      inactive_days:
+        description: 'Days of inactivity threshold'
+        required: false
+        default: '180'
+      max_unfollows:
+        description: 'Maximum unfollows per run'
+        required: false
+        default: '50'
+
+jobs:
+  inactive-cleaning:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python with uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Check OAuth requirements
+      env:
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+      run: |
+        if [ -z "$ACCESS_TOKEN" ] || [ -z "$ACCESS_TOKEN_SECRET" ]; then
+          echo "❌ OAuth tokens required for inactive account cleaning"
+          echo "Configure ACCESS_TOKEN and ACCESS_TOKEN_SECRET in repository secrets"
+          echo "Cleaning requires user context authentication to access following list"
+          exit 1
+        else
+          echo "✅ OAuth configured - proceeding with cleaning"
+        fi
+    
+    - name: Set cleaning parameters
+      run: |
+        DRY_RUN="${{ github.event.inputs.dry_run || 'true' }}"
+        INACTIVE_DAYS="${{ github.event.inputs.inactive_days || '180' }}"
+        MAX_UNFOLLOWS="${{ github.event.inputs.max_unfollows || '50' }}"
+        
+        echo "dry_run=$DRY_RUN" >> $GITHUB_ENV
+        echo "inactive_days=$INACTIVE_DAYS" >> $GITHUB_ENV
+        echo "max_unfollows=$MAX_UNFOLLOWS" >> $GITHUB_ENV
+        
+        echo "🧹 Cleaning Configuration:"
+        echo "   Dry Run: $DRY_RUN"
+        echo "   Inactive Days: $INACTIVE_DAYS"
+        echo "   Max Unfollows: $MAX_UNFOLLOWS"
+    
+    - name: Run inactive account cleaner
+      env:
+        BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        API_KEY: ${{ secrets.API_KEY }}
+        API_KEY_SECRET: ${{ secrets.API_KEY_SECRET }}
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+        TARGET_USER_ID: ${{ secrets.TARGET_USER_ID }}
+        TARGET_USERNAME: ${{ secrets.TARGET_USERNAME }}
+      run: |
+        echo "🧹 Starting inactive account cleaning..."
+        echo "Mode: ${{ env.dry_run == 'true' && 'DRY RUN (Safe)' || 'LIVE (Will unfollow!)' }}"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        # Build command arguments
+        ARGS="--inactive-days ${{ env.inactive_days }} --max-unfollows ${{ env.max_unfollows }}"
+        if [ "${{ env.dry_run }}" = "true" ]; then
+          ARGS="$ARGS --dry-run"
+        fi
+        
+        # Run the cleaner
+        uv run python scripts/archive/inactive_account_cleaner.py $ARGS
+        
+        echo "✅ Cleaning operation completed"
+    
+    - name: Generate cleaning report
+      run: |
+        REPORT_FILE="reports/cleaning_$(date -u +%Y%m%d_%H%M).md"
+        MODE="${{ env.dry_run == 'true' && 'Dry Run' || 'Live Run' }}"
+        
+        echo "# Inactive Account Cleaning Report - $(date -u +%Y-%m-%d)" > $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "## Configuration" >> $REPORT_FILE
+        echo "- **Mode**: $MODE" >> $REPORT_FILE
+        echo "- **Inactive Threshold**: ${{ env.inactive_days }} days" >> $REPORT_FILE
+        echo "- **Max Unfollows**: ${{ env.max_unfollows }}" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Check for cleaning results
+        if [ -f "inactive_cleaner.db" ]; then
+          echo "## Results" >> $REPORT_FILE
+          echo "Database updated: ✅" >> $REPORT_FILE
+        fi
+        
+        echo "" >> $REPORT_FILE
+        echo "Generated: $(date -u)" >> $REPORT_FILE
+        
+        # Safety warning for live runs
+        if [ "${{ env.dry_run }}" = "false" ]; then
+          echo "" >> $REPORT_FILE
+          echo "⚠️  **LIVE RUN EXECUTED** - Accounts were actually unfollowed" >> $REPORT_FILE
+        fi
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Inactive Cleaner Bot"
+        
+        # Add generated files
+        git add data/ reports/ *.json *.db
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          MODE="${{ env.dry_run == 'true' && 'DRY RUN' || 'LIVE RUN' }}"
+          
+          git commit -m "Weekly inactive account cleaning - $(date -u +%Y-%m-%d) [$MODE]
+
+🧹 Automated account cleaning results
+📋 Inactive threshold: ${{ env.inactive_days }} days
+🎯 Max unfollows: ${{ env.max_unfollows }}
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+          
+          git push
+          echo "✅ Cleaning results committed and pushed"
+        fi
+    
+    - name: Safety notification
+      if: env.dry_run == 'false'
+      run: |
+        echo "🚨 LIVE CLEANING WAS EXECUTED"
+        echo "Accounts may have been unfollowed"
+        echo "Check the cleaning report for details"
+        echo "Consider setting up notifications for live runs"
+    
+    - name: Handle errors
+      if: failure()
+      run: |
+        echo "❌ Inactive account cleaning failed"
+        echo "Common causes:"
+        echo "  - OAuth tokens not configured or expired"
+        echo "  - API rate limits exceeded"
+        echo "  - Network connectivity issues"
+        echo "Check logs above for specific error details"

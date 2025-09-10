@@ -1,0 +1,193 @@
+name: Daily Database Backup
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC for database backup
+    - cron: '0 2 * * *'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  backup-database:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Create database backup
+      run: |
+        echo "💾 Starting database backup..."
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        BACKUP_DATE=$(date -u +%Y%m%d_%H%M%S)
+        BACKUP_DIR="data/backups"
+        
+        mkdir -p $BACKUP_DIR
+        
+        # Backup all databases
+        BACKUP_COUNT=0
+        
+        for db_file in data/*.db; do
+          if [ -f "$db_file" ]; then
+            db_name=$(basename "$db_file" .db)
+            backup_file="$BACKUP_DIR/${db_name}_backup_$BACKUP_DATE.db"
+            
+            echo "📄 Backing up: $db_file -> $backup_file"
+            cp "$db_file" "$backup_file"
+            
+            # Verify backup
+            if [ -f "$backup_file" ]; then
+              BACKUP_SIZE=$(du -h "$backup_file" | cut -f1)
+              echo "✅ Backup created: $backup_file ($BACKUP_SIZE)"
+              BACKUP_COUNT=$((BACKUP_COUNT + 1))
+            else
+              echo "❌ Backup failed: $backup_file"
+            fi
+          fi
+        done
+        
+        if [ $BACKUP_COUNT -eq 0 ]; then
+          echo "⚠️  No databases found to backup"
+          echo "Databases are expected in data/ directory with .db extension"
+        else
+          echo "✅ Backup completed: $BACKUP_COUNT databases backed up"
+        fi
+        
+        echo "backup_count=$BACKUP_COUNT" >> $GITHUB_ENV
+    
+    - name: Cleanup old backups
+      run: |
+        echo "🧹 Cleaning up old backups..."
+        
+        BACKUP_DIR="data/backups"
+        
+        # Keep only last 30 days of backups
+        find $BACKUP_DIR -name "*_backup_*.db" -mtime +30 -delete 2>/dev/null || true
+        
+        # Keep only last 10 backups per database type
+        for db_type in x_tracker competitor_intelligence x_growth_data inactive_cleaner; do
+          if ls $BACKUP_DIR/${db_type}_backup_*.db >/dev/null 2>&1; then
+            ls -t $BACKUP_DIR/${db_type}_backup_*.db | tail -n +11 | xargs rm -f 2>/dev/null || true
+            REMAINING=$(ls $BACKUP_DIR/${db_type}_backup_*.db 2>/dev/null | wc -l || echo 0)
+            echo "📊 $db_type: $REMAINING backups retained"
+          fi
+        done
+        
+        # Calculate total backup size
+        TOTAL_SIZE=$(du -sh data/backups 2>/dev/null | cut -f1 || echo "0")
+        echo "💽 Total backup size: $TOTAL_SIZE"
+    
+    - name: Generate backup report
+      run: |
+        REPORT_FILE="reports/backup_$(date -u +%Y%m%d).md"
+        
+        echo "# Database Backup Report - $(date -u +%Y-%m-%d)" > $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "## Backup Summary" >> $REPORT_FILE
+        echo "- **Timestamp**: $(date -u)" >> $REPORT_FILE
+        echo "- **Databases Backed Up**: ${{ env.backup_count }}" >> $REPORT_FILE
+        echo "- **Backup Location**: \`data/backups/\`" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## Backup Details" >> $REPORT_FILE
+        if [ -d "data/backups" ]; then
+          echo "\`\`\`" >> $REPORT_FILE
+          ls -lah data/backups/*_backup_$(date -u +%Y%m%d)*.db 2>/dev/null | awk '{print $9, $5}' | sed 's|data/backups/||' >> $REPORT_FILE || echo "No backups created today" >> $REPORT_FILE
+          echo "\`\`\`" >> $REPORT_FILE
+        fi
+        
+        echo "" >> $REPORT_FILE
+        echo "## Storage Information" >> $REPORT_FILE
+        echo "- **Total Backup Size**: $(du -sh data/backups 2>/dev/null | cut -f1 || echo '0')" >> $REPORT_FILE
+        echo "- **Number of Backup Files**: $(find data/backups -name '*.db' 2>/dev/null | wc -l || echo '0')" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "## Retention Policy" >> $REPORT_FILE
+        echo "- Daily backups are kept for 30 days" >> $REPORT_FILE
+        echo "- Maximum 10 backups per database type" >> $REPORT_FILE
+        echo "- Automatic cleanup runs daily" >> $REPORT_FILE
+        
+        echo "✅ Backup report generated"
+    
+    - name: Commit backup files
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Backup Bot"
+        
+        # Add backup files and report
+        git add data/backups/ reports/
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Daily database backup - $(date -u +%Y-%m-%d)
+
+💾 Automated database backup and cleanup
+📊 ${{ env.backup_count }} databases backed up
+🗂️ Old backups cleaned up per retention policy
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com)"
+          
+          git push
+          echo "✅ Backup files committed and pushed"
+        fi
+    
+    - name: Check backup integrity
+      run: |
+        echo "🔍 Checking backup integrity..."
+        
+        INTEGRITY_ISSUES=0
+        
+        # Check each backup file
+        for backup_file in data/backups/*_backup_$(date -u +%Y%m%d)*.db; do
+          if [ -f "$backup_file" ]; then
+            echo "Checking: $backup_file"
+            
+            # Basic SQLite integrity check
+            if sqlite3 "$backup_file" "PRAGMA integrity_check;" | grep -q "ok"; then
+              echo "✅ Integrity OK: $(basename $backup_file)"
+            else
+              echo "❌ Integrity FAILED: $(basename $backup_file)"
+              INTEGRITY_ISSUES=$((INTEGRITY_ISSUES + 1))
+            fi
+          fi
+        done
+        
+        if [ $INTEGRITY_ISSUES -gt 0 ]; then
+          echo "⚠️  $INTEGRITY_ISSUES backup(s) failed integrity check"
+          exit 1
+        else
+          echo "✅ All backups passed integrity check"
+        fi
+    
+    - name: Handle backup failures
+      if: failure()
+      run: |
+        echo "❌ Database backup failed"
+        echo "Possible causes:"
+        echo "  - No databases found in data/ directory"
+        echo "  - File system permissions issues"
+        echo "  - Database corruption detected"
+        echo "  - Insufficient storage space"
+        echo "Check logs above for specific error details"
+        
+        # Still try to commit any partial results
+        git add data/backups/ reports/ 2>/dev/null || true
+        if ! git diff --staged --quiet 2>/dev/null; then
+          git commit -m "Partial database backup - $(date -u +%Y-%m-%d) [FAILED]
+
+❌ Backup process encountered errors
+Check workflow logs for details
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>" 2>/dev/null || true
+          git push 2>/dev/null || true
+        fi

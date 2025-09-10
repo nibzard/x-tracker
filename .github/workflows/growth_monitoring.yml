@@ -1,0 +1,128 @@
+name: Enhanced Growth Monitoring (25x)
+
+on:
+  schedule:
+    # Run every hour if OAuth is configured for 25x monitoring
+    - cron: '15 * * * *'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  growth-monitoring:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python with uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Check OAuth configuration
+      env:
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+      run: |
+        if [ -z "$ACCESS_TOKEN" ] || [ -z "$ACCESS_TOKEN_SECRET" ]; then
+          echo "⚠️  OAuth tokens not configured - falling back to basic monitoring"
+          echo "Configure ACCESS_TOKEN and ACCESS_TOKEN_SECRET for 25x enhanced monitoring"
+          echo "oauth_enabled=false" >> $GITHUB_ENV
+        else
+          echo "✅ OAuth configured - enabling 25x enhanced monitoring"
+          echo "oauth_enabled=true" >> $GITHUB_ENV
+        fi
+    
+    - name: Run growth monitoring
+      env:
+        BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        API_KEY: ${{ secrets.API_KEY }}
+        API_KEY_SECRET: ${{ secrets.API_KEY_SECRET }}
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+        TARGET_USER_ID: ${{ secrets.TARGET_USER_ID }}
+        TARGET_USERNAME: ${{ secrets.TARGET_USERNAME }}
+      run: |
+        echo "📈 Starting enhanced growth monitoring..."
+        echo "OAuth enabled: ${{ env.oauth_enabled }}"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        if [ "${{ env.oauth_enabled }}" = "true" ]; then
+          echo "🚀 Running 25x enhanced monitoring with OAuth"
+          # Run X Growth Center with OAuth
+          uv run python scripts/archive/x_growth_center.py
+        else
+          echo "📊 Running basic metrics tracking"
+          # Run basic metrics tracking
+          uv run python scripts/archive/track_metrics.py
+        fi
+        
+        echo "✅ Growth monitoring completed"
+    
+    - name: Generate growth report
+      run: |
+        REPORT_FILE="reports/growth_$(date -u +%Y%m%d_%H%M).md"
+        
+        echo "# Growth Monitoring Report - $(date -u +%Y-%m-%d %H:%M)" > $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "## Monitoring Type: ${{ env.oauth_enabled == 'true' && '🚀 Enhanced (25x)' || '📊 Basic' }}" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        # Add current metrics if available
+        if [ -f "latest_metrics.json" ]; then
+          echo "### Current Metrics" >> $REPORT_FILE
+          echo "\`\`\`json" >> $REPORT_FILE
+          cat latest_metrics.json >> $REPORT_FILE
+          echo "\`\`\`" >> $REPORT_FILE
+        fi
+        
+        echo "" >> $REPORT_FILE
+        echo "Generated: $(date -u)" >> $REPORT_FILE
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Growth Monitor Bot"
+        
+        # Add all generated files
+        git add data/ reports/ *.json *.csv
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          # Create commit with metrics summary
+          MONITORING_TYPE="${{ env.oauth_enabled == 'true' && 'Enhanced (25x)' || 'Basic' }}"
+          
+          git commit -m "Growth monitoring update - $(date -u +%Y-%m-%d_%H:%M) [$MONITORING_TYPE]
+
+📈 Automated growth tracking data
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+          
+          git push
+          echo "✅ Growth data committed and pushed"
+        fi
+    
+    - name: Handle rate limit errors
+      if: failure()
+      run: |
+        echo "⚠️  Growth monitoring failed - checking rate limits..."
+        
+        if [ "${{ env.oauth_enabled }}" = "true" ]; then
+          echo "Enhanced monitoring allows 25 requests per day"
+          echo "If hitting limits, consider reducing frequency or checking OAuth tokens"
+        else
+          echo "Basic monitoring allows 1 request per 24 hours"
+          echo "Consider upgrading to OAuth for 25x more requests"
+        fi
