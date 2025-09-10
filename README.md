@@ -40,6 +40,17 @@ make ui           # Opens at http://localhost:7860
 
 **You're now running a professional X analytics platform! 🎉**
 
+## ⚡ Quick GitHub Setup (2 Minutes)
+
+**Enable 24/7 automation with 6 GitHub Actions workflows:**
+
+1. **Configure secrets**: Go to https://github.com/YOUR_USERNAME/x-tracker/settings/secrets/actions
+2. **Add your API credentials** (BEARER_TOKEN, API_KEY, API_KEY_SECRET, TARGET_USER_ID, TARGET_USERNAME)
+3. **Enable Actions**: Visit https://github.com/YOUR_USERNAME/x-tracker/actions
+4. **Done!** Your automation is now running 24/7
+
+See detailed setup instructions below ⬇️
+
 ## 🎨 Web Interface Features
 
 The new Gradio web interface provides a professional dashboard with:
@@ -176,23 +187,69 @@ PROTECT_VERIFIED=true
 
 ## 📊 GitHub Actions Setup
 
-### Repository Secrets Required:
-```
-BEARER_TOKEN           # X API Bearer Token
-API_KEY               # X API Key
-API_KEY_SECRET        # X API Secret  
-TARGET_USER_ID        # Your X User ID
-TARGET_USERNAME       # Your X Username
+### Step 1: Configure Repository Secrets
 
-# Optional (for 25x features):
-ACCESS_TOKEN          # OAuth Access Token
-ACCESS_TOKEN_SECRET   # OAuth Access Token Secret
+1. **Go to your repository settings**: https://github.com/YOUR_USERNAME/x-tracker/settings/secrets/actions
+
+2. **Click "New repository secret"** and add each of these:
+
+**Required Secrets:**
+```
+BEARER_TOKEN = your_bearer_token_from_x_developer_portal
+API_KEY = your_api_key_from_x_developer_portal  
+API_KEY_SECRET = your_api_secret_from_x_developer_portal
+TARGET_USER_ID = your_x_user_id_number
+TARGET_USERNAME = your_x_username_without_@
 ```
 
-### Automated Schedule:
+**Optional Secrets (for 25x enhanced features):**
+```
+ACCESS_TOKEN = your_oauth_access_token
+ACCESS_TOKEN_SECRET = your_oauth_access_token_secret
+```
+
+### Step 2: Enable Actions
+
+1. **Go to Actions tab**: https://github.com/YOUR_USERNAME/x-tracker/actions
+2. **Click "I understand my workflows, go ahead and enable them"**
+3. **Workflows will start running automatically**
+
+### Step 3: Monitor Your Automation
+
+**View running workflows**: https://github.com/YOUR_USERNAME/x-tracker/actions
+
+**Expected workflow runs:**
 - **Daily**: Metrics tracking (12:00 UTC) & Database backup (02:00 UTC)
 - **Hourly**: Competitor intelligence & Enhanced monitoring  
 - **Weekly**: Account cleaning (Sunday 12:00 UTC) & Reports (Monday 09:00 UTC)
+
+### 🔍 How to Get Your Credentials
+
+**X Developer Portal**: https://developer.twitter.com/en/portal/dashboard
+1. Go to your app → "Keys and Tokens"
+2. Copy Bearer Token, API Key, API Key Secret
+3. Generate Access Token & Secret (for OAuth features)
+4. Your User ID: Use any online tool to convert @username to ID
+
+**Find your User ID**: 
+- Use: https://tweeterid.com/ 
+- Enter your username to get the numeric ID
+
+### ⚠️ Security Notes
+
+- **Never commit credentials** to your repository
+- **Keep .env file local** (it's in .gitignore)
+- **Repository secrets are encrypted** and safe to use
+- **Regenerate tokens** if you suspect they're compromised
+
+### 🚀 Automated Features Unlocked
+
+Once configured, your repository provides:
+- **24/7 monitoring** of your X growth metrics
+- **Automated competitor intelligence** every hour
+- **Weekly account cleaning** to optimize your following list
+- **Daily database backups** for data protection
+- **Professional reports** generated automatically
 
 ## 🛠️ Development
 
